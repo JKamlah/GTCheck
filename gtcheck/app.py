@@ -5,6 +5,7 @@ import os
 import re
 import sys
 import time
+import json
 import webbrowser
 from logging import Formatter
 from logging.handlers import RotatingFileHandler
@@ -60,7 +61,7 @@ def surrounding_images(img, folder):
     :param folder: Foldername
     :return:
     """
-    imgmatch = re.match(rf"{session['regexnum']}", img.name)
+    imgmatch = re.match(rf"^(.*?)(\d+)(\D*)$", img.name)
     imgint = int(imgmatch[2])
     imgprefix = img.name[:imgmatch.regs[1][1]]
     imgpostfix = img.name[imgmatch.regs[3][0]:]
@@ -133,14 +134,15 @@ def get_difftext(origtext, item, folder, repo):
     return difftext
 
 
-@app.route('/gtcheck', methods=['GET', 'POST'])
-def gtcheck():
+@app.route('/gtcheck/<reponame>', methods=['GET', 'POST'])
+def gtcheck(reponame):
     """
     Gathers the information to render the gtcheck
     :return:
     """
     repo = get_repo(session['folder'])
     folder = Path(session['folder'])
+    custom_idx_keys = [("1","ſ")]
     name = repo.config_reader().get_value('user', 'name')
     name = 'GTChecker' if name == "" else name
     email = repo.config_reader().get_value('user', 'email')
@@ -195,7 +197,7 @@ def gtcheck():
         fname = folder.joinpath(item.a_path)
         mods = modifications(difftext)
         if diffhead:
-            commitmsg = f"[GT Checked] Staged Files: {diffhead}"
+            commitmsg = f"[GT Checked] Staged Files: {session['difflen']}"
         else:
             commitmsg = f"[GT Checked]  {item.a_path}: {', '.join([orig + ' -> ' + mod for orig, mod in mods])}"
         session['modtext'] = modtext
@@ -209,33 +211,35 @@ def gtcheck():
         inames = [iname for iname in fname.parent.glob(f"{fname.name.replace('gt.txt', '')}*") if imghdr.what(iname)]
         img = inames[0] if inames else None
         if not img:
-            return render_template("gtcheck.html", repo=session['folder'], branch=repo.active_branch, name=name,
+            return render_template("gtcheck.html", repo=session['folder'], reponame=reponame,
+                                   files_len=session['reservefile']['Dateien_gesamt'], name=name,
                                    email=email, commitmsg=commitmsg,
                                    difftext=Markup(diffcolored), origtext=origtext, modtext=modtext,
                                    files_left=str(session['difflen']-session['skip']),
                                    iname="No image", fname=str(fname.name), skipped=session['skip'],
-                                   vkeylang=session['vkeylang'])
+                                   vkeylang=session['vkeylang'], custom_idx_keys=custom_idx_keys)
         else:
             img_out = Path("./symlink/").joinpath(img.relative_to(folder.parent))
             prev_img, post_img = surrounding_images(img, folder)
-            return render_template("gtcheck.html", repo=session['folder'], branch=repo.active_branch, name=name,
+            return render_template("gtcheck.html", repo=session['folder'], reponame=reponame,
+                                   files_len=session['reservefile']['Dateien_gesamt'], name=name,
                                    email=email, commitmsg=commitmsg, image=img_out, previmage=prev_img,
                                    postimage=post_img,
                                    difftext=Markup(diffcolored), origtext=origtext, modtext=modtext,
                                    files_left=str(session['difflen']-session['skip']),
                                    iname=str(img.name), fname=str(fname.name), skipped=session['skip'],
-                                   vkeylang=session['vkeylang'])
+                                   vkeylang=session['vkeylang'],custom_idx_keys=custom_idx_keys)
     else:
         if diffhead:
             commitmsg = f"[GT Checked] Staged Files: {diffhead}"
-            modtext = f"Please commit the staged files! You skipped {session['skip']} files."
+            modtext = f"Du hast {session['skip']} Dateien übersprungen!."
             session['difflen'] = session['skip']
-            return render_template("gtcheck.html", name=name, email=email, commitmsg=commitmsg, modtext=modtext,
+            return render_template("gtcheck.html", reponame=reponame, name=name, email=email, commitmsg=commitmsg, modtext=modtext,
                                    files_left="0")
         if not session['difflist']:
             return render_template("nofile.html")
         session['skip'] = 0
-        return gtcheck()
+        return gtcheck(reponame)
 
 def pop_idx(lname, popidx):
     """
@@ -249,8 +253,8 @@ def pop_idx(lname, popidx):
     return
 
 
-@app.route('/gtcheckedit', methods=['GET', 'POST'])
-def gtcheckedit():
+@app.route('/gtcheckedit/<reponame>', methods=['GET', 'POST'])
+def gtcheckedit(reponame):
     """
     Process the user input from gtcheck html pages
     :return:
@@ -262,7 +266,7 @@ def gtcheckedit():
         if data['selection'] == 'commit':
             repo.git.commit('-m', data['commitmsg'])
         session['difflist'] = []
-        return gtcheck()
+        return gtcheck(reponame)
     fname = Path(session['folder']).joinpath(session['fpath'])
     # Update git config
     repo.config_writer().set_value('user', 'name', data.get('name','GTChecker')).release()
@@ -273,21 +277,29 @@ def gtcheckedit():
         repo.git.reset('HEAD', session['undo_fpath'])
         with open(session['undo_fpath'],"w") as fout:
             fout.write(session['undo_value'])
+        session['difflen'] += 1
     session['undo_fpath'] = str(fname)
     session['undo_value'] = session['modtext']
     if data['selection'] == 'commit':
-        if data['difflen']-session['skip'] != 0:
+        if session['difflen']-session['skip'] != 0:
             if session['modtext'].replace("\r\n","\n") != modtext or session['modtype'] == "merge":
                 with open(fname, 'w') as fout:
                     fout.write(modtext)
             repo.git.add(str(fname), u=True)
+            session['reservefile']['Dateien_bearbeitet'] = session["reservefile"]['Dateien_gesamt']-session['difflen']
+            with open(get_mainfolder().joinpath("reservations/" + session['reservefile']['Repo'] + ".json"), "w") as fout:
+                json.dump(session['reservefile'], fout)
         repo.git.commit('-m', data['commitmsg'])
         session['difflist'] = []
+        session['difflen'] -= 1
     elif data['selection'] == 'stash':
         if session['modtype'] in ['new']:
             repo.git.rm('-f', str(fname))
         else:
             repo.git.checkout('--', str(fname))
+        session["reservefile"]['Dateien_gesamt'] -= 1
+        with open(get_mainfolder().joinpath("reservations/" + session['reservefile']['Repo'] + ".json"), "w") as fout:
+            json.dump(session['reservefile'], fout)
             # Used stash push but it seems to have negative side effects
             #repo.git.stash('push', str(fname))
     elif data['selection'] == 'add':
@@ -295,15 +307,16 @@ def gtcheckedit():
             with open(fname, 'w') as fout:
                 fout.write(modtext)
         repo.git.add(str(fname), u=True)
+        session['difflen'] -= 1
     else:
         session['skip'] += 1
-        return gtcheck()
+        return gtcheck(reponame)
     pop_idx('difflist', session['skip'] + session['fileidx'])
-    return gtcheck()
+    return gtcheck(reponame)
 
 
-@app.route('/gtcheckinit', methods=['POST'])
-def gtcheckinit():
+@app.route('/gtcheckinit/<reponame>', methods=['POST'])
+def gtcheckinit(reponame):
     """
     Process user input from setup page.
     Initial set the session-variables, which are stored in a cookie.
@@ -311,72 +324,120 @@ def gtcheckinit():
     :return:
     """
     data = request.form  # .to_dict(flat=False)
-    folder = data['repo']
+    folder = Path(data['Repopath'])
+    folder = folder.joinpath(reponame)
+    if 'reserve' in data.keys():
+        import datetime
+        import glob
+        currentDT = datetime.datetime.now()
+        with open(get_mainfolder().joinpath("reservations/"+reponame+".json"), "w") as fout:
+            reservefile  = {'Repo':reponame,
+                       'Bearbeiter': data['Bearbeiter'],
+                       'Reserviert seit': str(currentDT),
+                       'Dateien_bearbeitet':0,
+                       'Dateien_gesamt':len(glob.glob(str(folder)+"/**/*.txt"))}
+            json.dump(reservefile,fout)
+    elif 'reserve_cancel' in data.keys():
+        os.remove(get_mainfolder().joinpath("reservations/"+reponame+".json"))
+        return index()
+    elif 'move_finished' in data.keys():
+        move_finished(folder)
+        return index()
+    else:
+        with open(get_mainfolder().joinpath("reservations/" + reponame + ".json")) as fin:
+            reservefile = json.load(fin)
     repo = get_repo(folder)
-    repo.config_writer().set_value('user', 'name', data.get('name','GTChecker')).release()
+    logger(str(folder.absolute())+f"/{folder.name}_{repo.active_branch}.log".replace(' ', '_'))
+    diffhead = repo.git.diff('--cached', '--shortstat').strip().split(" ")[0]
+    if diffhead != "":
+        flash(f"You have {diffhead} staged file[s] in the {repo.active_branch} branch! These files will be added to the next commit.")
+    repo.config_writer().set_value('user', 'name', data.get('Bearbeiter','GTChecker')).release()
     repo.config_writer().set_value('user', 'email', data.get('email','')).release()
     session.clear()
-    session['folder'] = folder
+    session['folder'] = str(folder.absolute())
     session['skip'] = 0
     session['difflist'] = []
-    session['addcc'] = True if 'addCC' in data.keys() else False
-    session['skipcc'] = True if 'skipCC' in data.keys() else False
-    session['regexnum'] = data['regexnum']
+    session['difflen'] = len(session['difflist'])
+    session['reservefile'] = reservefile
     session['vkeylang'] = ""
     session['undo_fpath'] = ""
     session['undo_value'] = ""
     assert not repo.bare, "Git repo is bare"  # check if repo is bare
     if data.get('reset', 'off') == 'on':
         repo.git.reset()
-    if data.get('checkout', 'off') == 'on' and data['new_branch'] != "":
-        repo.git.checkout(data['branches'], b=data['new_branch'])
-    elif data['branches'] != str(repo.active_branch):
-        app.logger.warning(f"Branch was force checkout from {str(repo.active_branch)} to {data['branches']}")
-        repo.git.reset()
-        repo.git.checkout('-f', data['branches'])
     # Add untracked files to index (--intent-to-add)
     [repo.git.add('-N', item) for item in repo.untracked_files if ".gt.txt" in item]
     # Check requirements
-    assert repo.is_dirty(), "No modified gt-files in the repository"  # check the dirty state
-    return gtcheck()
+    if not repo.is_dirty():
+        reservefile['Dateien_bearbeitet'] = reservefile['Dateien_gesamt']
+        with open(get_mainfolder().joinpath("reservations/" + reponame + ".json"), "w") as fout:
+            json.dump(reservefile, fout)
+        return index()
+    return gtcheck(reponame)
 
 
-def clean_symlinks():
+def clean_symlinks(folder=None):
     """
     Unlink symbolic linked folder in static/symlink
     :return:
     """
     symlinkfolder = Path(__file__).resolve().parent.joinpath(f"static/symlink/")
-    for folder in symlinkfolder.iterdir():
-        if folder.is_dir():
-            folder.unlink()
+    for symfolder in symlinkfolder.iterdir():
+        if symfolder.is_dir():
+            if folder is None:
+                symfolder.unlink()
+            elif symfolder.name == folder:
+                symfolder.unlink()
     return
 
+def move_finished(folder):
+    finished_folder = get_mainfolder().joinpath('bearbeitet').joinpath(folder.parent.name)
+    if not finished_folder.exists():
+        finished_folder.mkdir(parents=True)
+    import shutil
+    shutil.move(str(folder.absolute()),str(finished_folder.absolute()))
+    shutil.move(str(get_mainfolder().joinpath("reservations").joinpath(folder.name+".json").absolute()),
+                str(finished_folder.joinpath(folder.name).absolute()))
+    clean_symlinks(folder.name)
+    return index()
 
-@app.route("/")
+
+def get_reservations():
+    reservations = {}
+    reservationfolder = get_mainfolder().joinpath("reservations")
+    if not reservationfolder.exists():
+        reservationfolder.mkdir()
+    reservationsfiles = reservationfolder.glob("*.json")
+    for reservationsfile in reservationsfiles:
+        data = json.load(reservationsfile.open())
+        reservations[data['Repo']] = data
+    return reservations
+
+def get_mainfolder():
+    if len(sys.argv) > 1:
+        mainfolder = Path(sys.argv[1])
+    else:
+        mainfolder = Path(".")
+    return mainfolder
+
+@app.route("/", methods=['GET'])
 def index():
     """
     Renders setup page
     :return:
     """
-    if len(sys.argv) > 1:
-        folder = Path(sys.argv[1])
-    else:
-        folder = Path(".")
-    repo = get_repo(folder)
-    folder = Path(repo.git_dir).parent
-    # Create repository depending logger
-    logger(f"./logs/{folder.name}_{repo.active_branch}.log".replace(' ','_'))
-    name = repo.config_reader().get_value('user', 'name')
-    clean_symlinks()
-    if name == "":
-        name = "GTChecker"
-    email = repo.config_reader().get_value('user', 'email')
-    diffhead = repo.git.diff('--cached', '--shortstat').strip().split(" ")[0]
-    if diffhead != "":
-        flash(f"You have {diffhead} staged file[s] in the {repo.active_branch} branch! These files will be added to the next commit.")
-    return render_template("setup.html", name=name, email=email, repo=str(folder), active_branch=repo.active_branch,
-                           branches=repo.branches)
+    mainfolder = get_mainfolder()
+    grpfolders = mainfolder.glob('*')
+    from collections import defaultdict
+    grprepos = defaultdict(dict)
+    reservations = get_reservations()
+    for grpfolder in grpfolders:
+        if grpfolder.name in ['reservations', 'bearbeitet']: continue
+        folders = grpfolder.glob('*')
+        for folder in folders:
+                readme = folder.joinpath("README.md").read_text()
+                grprepos[grpfolder.name][folder.name] = {"README":readme, "Repopath":str(folder.parent)}
+    return render_template("index.html", grprepos=grprepos, reservations=reservations)
 
 
 @app.errorhandler(500)
@@ -413,6 +474,7 @@ def logger(fname):
     app.logger.addHandler(file_handler)
 
 
+
 def run():
     """
     Starting point to run the app
@@ -421,8 +483,8 @@ def run():
     port = int(os.environ.get('PORT', 5000))
     # Init basic logger
     app.logger.setLevel(logging.INFO)
-    if not app.debug:
-        logger('./logs/app.log')
+    #if not app.debug:
+    #    logger('./logs/app.log')
     # Set current time as secret_key for the cookie
     # The cookie can keep variables for the whole session (max. 4kb)
     app.config['SECRET_KEY'] = str(int(time.time()))

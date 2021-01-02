@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>GT Check</title>
+    <!--Import materialize.css-->
+    <link type="text/css" rel="stylesheet" href="{{ url_for('static', filename='css/materialize.min.css') }}" media="screen,projection"/>
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/gtcheck.css') }}">
+    <!--Let browser know website is optimized for mobile-->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+</head>
+<body>
+<!--Import jQuery before materialize.js-->
+<script type="text/javascript" src="{{ url_for('static', filename='js/jquery-3.5.1.min.js') }}"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='js/materialize.min.js') }}"></script>
+<script>
+        $(document).ready(function() {
+        $('.collapsible').collapsible();
+        });
+</script>
+<script>
+        $(document).ready(function() {
+        $('select').material_select();
+        });
+</script>
+<script>
+  $(document).ready(function() {
+    Materialize.updateTextFields();
+  });
+</script>
+<div style="margin-left: 15px; margin-right: 15px;">
+    <h1 class="heading center">Online Transkription UBMA</h1>
+</div>
+
+<ul class="collapsible">
+{% for grprepo_name, repos in grprepos.items() %}
+    <li>
+      <div class="collapsible-header">{{ grprepo_name }}</div>
+        {% for repo_name, repo_val in repos.items() %}
+        <div class="collapsible-body">
+        <form id="gtcheck-form" action="{{ url_for('gtcheckinit', reponame=repo_name) }}" method="POST" enctype="multipart/form-data">
+            <h5>{{ repo_name }}</h5>
+            <label>Beschreibung: {{ repo_val["README"] }}</label>
+            <input type="hidden" value="{{ repo_val['Repopath'] }}" name="Repopath">
+            {% if repo_name not in reservations.keys(): %}
+                <div class="input-field col s6">
+                    <input type="text" id=repo_name0 value="{{ repo }}" name="Bearbeiter">
+                    <label for=repo_name0>Bearbeiter</label>
+                </div>
+                <button name="reserve" class="btn waves-effect waves-light" type="submit">Reservieren</button>
+                <button class="btn waves-effect waves-light" type="submit" disabled>Starten</button>
+                <button class="btn waves-effect waves-light" type="submit" disabled>Reservierung aufheben</button>
+            {% elif reservations[repo_name]['Dateien_bearbeitet'] != reservations[repo_name]['Dateien_gesamt'] %}
+                <div class="input-field col s6">
+                    <input type="text" id=repo_name1 value="{{ reservations[repo_name]['Bearbeiter'] }}" name="Bearbeiter" readonly>
+                    <label for=repo_name1>Bearbeiter</label>
+                </div>
+                <button class="btn waves-effect waves-light" type="submit" disabled>Reservieren</button>
+                <button name="start" class="btn waves-effect waves-light" type="submit" >Starten</button>
+                <button name="reserve_cancel" class="btn waves-effect waves-light" type="submit" >Reservierung aufheben</button>
+                <label>Fortschritt: {{ reservations[repo_name]['Dateien_bearbeitet'] }}/{{ reservations[repo_name]['Dateien_gesamt'] }}</label>
+            {% else %}
+                <div class="input-field col s6">
+                    <input type="text" id=repo_name2 value="{{ reservations[repo_name]['Bearbeiter'] }}" name="Bearbeiter" readonly>
+                    <label for=repo_name2>Bearbeiter</label>
+                </div>
+                <button name="move_finished" class="btn waves-effect waves-light" type="submit">In Fertig Ordner verschieben</button>
+            {% endif %}
+        </form>
+    </div>
+        {% endfor %}
+    </li>
+{% endfor %}
+</ul>
+
+</body>
+</html>

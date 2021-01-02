@@ -41,6 +41,55 @@
     		$('select').formSelect();
  	 	});
 	</script>
+	<script>
+		function insertText(text)
+{
+	var $textbox = $("#keyboard");
+    var textStr  = $textbox.text();
+    var startPos = $textbox[0].selectionStart;
+    var endPos   = $textbox[0].selectionEnd;
+
+    // If set to true, the selection will NOT be replaced.
+    // Instead, the text will be inserted before the first highlighted character.
+    if (false)
+    {
+    	endPost = startPos;
+    }
+
+    var beforeStr = textStr.substr(0, startPos);
+    var afterStr  = textStr.substr(endPos, textStr.length);
+
+    textStr = beforeStr + text + afterStr;
+    $textbox.text(textStr);
+    $textbox.focus();
+    $textbox[0].selectionStart = endPos+text.length;
+    $textbox[0].selectionEnd = endPos+text.length;
+    return textStr;
+}
+
+$(function () {
+    $('#custom-key1').on('click', function () {
+        var text = $('#custom-key1').text();
+        insertText(text);
+    });
+    $('#custom-key2').on('click', function () {
+        var text = $('#custom-key2').text();
+        insertText(text);
+    });
+    $('#custom-key3').on('click', function () {
+        var text = $('#custom-key3').text();
+        insertText(text);
+    });
+    $('#custom-key4').on('click', function () {
+        var text = $('#custom-key4').text();
+        insertText(text);
+    });
+    $('#custom-key5').on('click', function () {
+        var text = $('#custom-key5').text();
+        insertText(text);
+    });
+});
+	</script>
 	<script type="text/javascript" src="{{ url_for('static', filename='vkeys/js/previewkeyset.js') }}"></script>
 	<script>
 		var layouts = [
@@ -140,14 +189,14 @@
 </head>
 <body>
 	<div style="margin-left: 15px; margin-right: 15px;">
-		<h2 class="heading center">GT Check</h2>
+		<h2 class="heading center">Online Transkription UBMA</h2>
 	</div>
-	<form id="gtcheckedit-form" action="{{ url_for('gtcheckedit') }}" method="POST" enctype="multipart/form-data">
+	<form id="gtcheckedit-form" action="{{ url_for('gtcheckedit', reponame=reponame) }}" method="POST" enctype="multipart/form-data">
 		<div class="fixed-action-btn" style="height: 97%;right:-12%" id="setting-group" >
 		<div id="switcher"></div>
 		<label style="font-size:0.6rem" for="lang">Virtual Keyboard Language</label>
 		<select class="browser-default form-control" name="vkeylang" style="width:40%;font-size:0.75rem" id="lang"></select>
-			<label for="undo">Undo last action</label>
+			<label for="undo">Letzte Aktion rückgängig machen</label>
 			<div class="switch"  id="undo">
 				<label>
 					Off
@@ -164,37 +213,35 @@
 			<div class="mod-text"><textarea id="keyboard" name="modtext" contenteditable="true">{{ modtext }}</textarea>
 				<a class="btn-floating waves-effect waves-light" style="position:relative;left:-50%;float:right" type="toggle" name="action">
 				<i class="material-icons" id="vkey-icon">keyboard</i></a>
+				{% for idx, custom_key in custom_idx_keys %}
+					<a class="btn-floating waves-effect waves-light" style="position:relative;left:-30%;float:right" type="button">
+					<i class="material-icons" id="custom-key{{ idx }}">{{ custom_key }}</i></a>
+				{% endfor %}
 			</div>
 			<div class="fixed-action-btn"  id="submit-group">
-				<a href="{{ add }}" target="blank"><button id="add!" class='btn' name="selection" value="add">add!</button></a>
-				<a href="{{ commit }}" target="blank"><button  id="commit!" class='btn' name="selection" value="commit">commit!</button></a>
-				<a href="{{ skip }}" target="blank"><button id="skip!" class='btn' name="selection" value="skip">skip!</button></a>
-				<a href="{{ stash }}" target="blank"><button id="stash!" class='btn' name="selection" value="stash">stash!</button></a>
+				<a href="{{ commit }}" target="blank"><button  id="commit!" class='btn' name="selection" value="commit">Bestätigen</button></a>
+				<a href="{{ skip }}" target="blank"><button id="skip!" class='btn' name="selection" value="skip">Überspringen</button></a>
+				<a href="{{ stash }}" target="blank"><button id="stash!" class='btn' name="selection" value="stash">Löschen</button></a>
 			</div>
-			<div class="diff-text" style="clear: both" >{{ difftext }}</div>
-		<div class="orig-text">{{ origtext }}</div>
-		<div style="margin-left: 50%;font-family: monospace;font-size: 1.5rem;text-align:right">commit-message<textarea class="commit-text" name="commitmsg">{{ commitmsg }}</textarea></div>
+		<div style="margin-left: 50%;font-family: monospace;font-size: 1.5rem;text-align:right"><br><textarea hidden class="commit-text" name="commitmsg">ADD file by {{ name }}</textarea></div>
+		<p></p><p></p><p></p>
 		<div class="textline"><img class="surr-image" src="{{ url_for('static', filename=postimage)  }}" alt="" onerror="this.style.display='none'"/></div>
 	</div>
 	<div class="row" style="float:right">
             <div class="col s2">
-				<label style="font-size:0.5rem" for="name">Name</label>
+				<label style="font-size:0.5rem" for="name">Bearbeiter</label>
 				<input class="validate" type="text" id="name" name="name" value="{{ name }}">
             </div>
-            <div class="col s2">
-				<label style="font-size:0.5rem" for="email">Email</label>
-                <input type="text"  id="email" name="email" value="{{ email }}">
+			<div class="col s2">
+				<label style="font-size:0.5rem" for="files_len">Dateien gesamt</label>
+                <input type="text" id="files_len" name="files_len" value="{{ files_len }}" readonly>
             </div>
 			<div class="col s2">
-				<label style="font-size:0.5rem" for="branch">Branch</label>
-                <input type="text" id="branch" name="branch" value="{{ branch }}" readonly>
-            </div>
-			<div class="col s2">
-				<label style="font-size:0.5rem" for="files_left">Files left</label>
+				<label style="font-size:0.5rem" for="files_left">Zu bearbeitende Dateien</label>
                 <input type="text"  id="files_left" name="files_left" value="{{ files_left }}" readonly>
             </div>
 			<div class="col s2">
-				<label style="font-size:0.5rem" for="skipped">Files skipped</label>
+				<label style="font-size:0.5rem" for="skipped">Übersprungene Dateien</label>
                 <input type="text"  id="skipped" name="skipped" value="{{ skipped }}" readonly>
             </div>
 	</div>
